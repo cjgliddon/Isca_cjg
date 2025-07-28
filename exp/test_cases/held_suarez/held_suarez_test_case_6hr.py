@@ -1,8 +1,11 @@
+# Test case for the Held-Suarez experiment, but with a 6-hourly data save-out.
+# Code is slightly modified, with liberal annotations, from held_suarez_test_case.py.
+
 import numpy as np
 
 from isca import DryCodeBase, DiagTable, Experiment, Namelist, GFDL_BASE
 
-NCORES = 8
+NCORES = 16
 RESOLUTION = 'T42', 25  # T42 horizontal resolution, 25 levels in pressure
 
 # a CodeBase can be a directory on the computer,
@@ -21,22 +24,23 @@ cb = DryCodeBase.from_directory(GFDL_BASE)
 # create an Experiment object to handle the configuration of model parameters
 # and output diagnostics
 
-exp_name = 'held_suarez_default'
+exp_name = 'held_suarez_6hr'                # this variable determines naming of the work/data subdirectories
 exp = Experiment(exp_name, codebase=cb)
 
 #Tell model how to write diagnostics
 diag = DiagTable()
-diag.add_file('atmos_monthly', 30, 'days', time_units='days')
+diag.add_file('atmos_6_hourly', 6, 'hours', time_units='hours')     #writes out average over past 6 hours
 
 #Tell model which diagnostics to write
-diag.add_field('dynamics', 'ps', time_avg=True)
+#setting time_avg = False makes sure the model is writing an instantaneous value rather than avg. over the DiagTable time interval
+diag.add_field('dynamics', 'ps', time_avg=False)     
 diag.add_field('dynamics', 'bk')
 diag.add_field('dynamics', 'pk')
-diag.add_field('dynamics', 'ucomp', time_avg=True)
-diag.add_field('dynamics', 'vcomp', time_avg=True)
-diag.add_field('dynamics', 'temp', time_avg=True)
-diag.add_field('dynamics', 'vor', time_avg=True)
-diag.add_field('dynamics', 'div', time_avg=True)
+diag.add_field('dynamics', 'ucomp', time_avg=False)
+diag.add_field('dynamics', 'vcomp', time_avg=False)
+diag.add_field('dynamics', 'temp', time_avg=False)
+diag.add_field('dynamics', 'vor', time_avg=False)
+diag.add_field('dynamics', 'div', time_avg=False)
 
 exp.diag_table = diag
 
@@ -44,9 +48,9 @@ exp.diag_table = diag
 # wrapped as a namelist object.
 namelist = Namelist({
     'main_nml': {
-        'dt_atmos': 600,
-        'days': 30,
-        'calendar': 'thirty_day',
+        'dt_atmos': 600,                    # timestep for the model integration, in seconds
+        'days': 30,                         # gives the length of a single "chunk"
+        'calendar': 'thirty_day',           # all months have 30 days; the year has 360 days
         'current_date': [2000,1,1,0,0,0]
     },
 
@@ -108,5 +112,5 @@ if __name__ == '__main__':
     # the overwrite_data flag is set to False by default. If True, this'll overwrite any output
     # data that already exists.
     exp.run(1, num_cores=NCORES, use_restart=False)
-    for i in range(2, 13):
+    for i in range(2, 4):             # 3 months total
         exp.run(i, num_cores=NCORES)  # use the restart i-1 by default

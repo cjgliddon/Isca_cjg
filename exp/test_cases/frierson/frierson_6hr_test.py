@@ -21,24 +21,24 @@ cb = IscaCodeBase.from_directory(GFDL_BASE)
 
 # create an Experiment object to handle the configuration of model parameters
 # and output diagnostics
-exp = Experiment('frierson_default_run', codebase=cb)
+exp = Experiment('frierson_6hr_test', codebase=cb)
 
 #Tell model how to write diagnostics
 diag = DiagTable()
-diag.add_file('atmos_monthly', 30, 'days', time_units='days')
+diag.add_file('atmos_6_hourly', 6, 'hours', time_units='hours')
 
 #Tell model which diagnostics to write
-diag.add_field('dynamics', 'ps', time_avg=True)
+diag.add_field('dynamics', 'ps', time_avg=False)
 diag.add_field('dynamics', 'bk')
 diag.add_field('dynamics', 'pk')
-diag.add_field('atmosphere', 'precipitation', time_avg=True)
-diag.add_field('mixed_layer', 't_surf', time_avg=True)
-diag.add_field('dynamics', 'sphum', time_avg=True)
-diag.add_field('dynamics', 'ucomp', time_avg=True)
-diag.add_field('dynamics', 'vcomp', time_avg=True)
-diag.add_field('dynamics', 'temp', time_avg=True)
-diag.add_field('dynamics', 'vor', time_avg=True)
-diag.add_field('dynamics', 'div', time_avg=True)
+diag.add_field('atmosphere', 'precipitation', time_avg=False)
+diag.add_field('mixed_layer', 't_surf', time_avg=False)
+diag.add_field('dynamics', 'sphum', time_avg=False)
+diag.add_field('dynamics', 'ucomp', time_avg=False)
+diag.add_field('dynamics', 'vcomp', time_avg=False)
+diag.add_field('dynamics', 'temp', time_avg=False)
+diag.add_field('dynamics', 'vor', time_avg=False)
+diag.add_field('dynamics', 'div', time_avg=False)
 
 exp.diag_table = diag
 
@@ -52,7 +52,7 @@ exp.namelist = namelist = Namelist({
      'hours'  : 0,
      'minutes': 0,
      'seconds': 0,
-     'dt_atmos':720,
+     'dt_atmos':300,
      'current_date' : [1,1,1,0,0,0],
      'calendar' : 'thirty_day'
     },
@@ -157,7 +157,7 @@ exp.namelist = namelist = Namelist({
         'num_levels':25,               #How many model pressure levels to use
         'valid_range_t':[100.,800.],
         'initial_sphum':[2.e-6],
-        'vert_coord_option':'input', #Use the vertical levels from Frierson 2006
+        'vert_coord_option':'uneven_sigma', #automatically calculates the sigma levels using a subroutine in vert_coordinate.F90
         'surf_res':0.5,
         'scale_heights' : 11.0,
         'exponent':7.0,
@@ -169,10 +169,14 @@ exp.namelist = namelist = Namelist({
        }
 })
 
+exp.namelist = namelist
+exp.set_resolution('T85', 25)
+
+
 #Lets do a run!
 if __name__=="__main__":
     cb.compile()  # compile the source code to working directory $GFDL_WORK/codebase
 
-    exp.run(1, use_restart=False, num_cores=NCORES)
-    for i in range(2,121):
-        exp.run(i, num_cores=NCORES)
+    exp.run(1, use_restart=False, num_cores=NCORES, overwrite_data=True)
+#    for i in range(2,121):
+#        exp.run(i, num_cores=NCORES)
