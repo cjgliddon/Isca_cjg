@@ -1,17 +1,11 @@
 import os
+import sys
 
 import numpy as np
 
 from isca import IscaCodeBase, DiagTable, Experiment, Namelist, GFDL_BASE
 
-
-#To run Isca with the Intel debugger, three changes should be made, as are in the below example.
-# 1. Set NCORES=1
-# 2. set the 'debug=True' argument in the 'cb.compile'
-# 3. Add the 'run_idb=True' option to the first instance of exp.run
-
-
-NCORES = 1
+NCORES = 16
 base_dir = os.path.dirname(os.path.realpath(__file__))
 # a CodeBase can be a directory on the computer,
 # useful for iterative development
@@ -26,28 +20,27 @@ cb = IscaCodeBase.from_directory(GFDL_BASE)
 # is used to load the correct compilers.  The env file is always loaded from
 # $GFDL_BASE and not the checked out git repo.
 
-cb.compile(debug=True)  # compile the source code to working directory $GFDL_WORK/codebase
-
 # create an Experiment object to handle the configuration of model parameters
 # and output diagnostics
-exp = Experiment('frierson_debug_perturbations', codebase=cb)
+#exp = Experiment('frierson_pert_test', codebase=cb)
+exp = Experiment('frierson_pert_test_spec', codebase=cb)
 
 #Tell model how to write diagnostics
 diag = DiagTable()
-diag.add_file('atmos_monthly', 30, 'days', time_units='days')
+diag.add_file('atmos_6_hourly', 6, 'hours', time_units='hours')
 
 #Tell model which diagnostics to write
-diag.add_field('dynamics', 'ps', time_avg=True)
+diag.add_field('dynamics', 'ps', time_avg=False)
 diag.add_field('dynamics', 'bk')
 diag.add_field('dynamics', 'pk')
-diag.add_field('atmosphere', 'precipitation', time_avg=True)
-diag.add_field('mixed_layer', 't_surf', time_avg=True)
-diag.add_field('dynamics', 'sphum', time_avg=True)
-diag.add_field('dynamics', 'ucomp', time_avg=True)
-diag.add_field('dynamics', 'vcomp', time_avg=True)
-diag.add_field('dynamics', 'temp', time_avg=True)
-diag.add_field('dynamics', 'vor', time_avg=True)
-diag.add_field('dynamics', 'div', time_avg=True)
+diag.add_field('atmosphere', 'precipitation', time_avg=False)
+diag.add_field('mixed_layer', 't_surf', time_avg=False)
+diag.add_field('dynamics', 'sphum', time_avg=False)
+diag.add_field('dynamics', 'ucomp', time_avg=False)
+diag.add_field('dynamics', 'vcomp', time_avg=False)
+diag.add_field('dynamics', 'temp', time_avg=False)
+diag.add_field('dynamics', 'vor', time_avg=False)
+diag.add_field('dynamics', 'div', time_avg=False)
 
 exp.diag_table = diag
 
@@ -61,7 +54,7 @@ exp.namelist = namelist = Namelist({
      'hours'  : 0,
      'minutes': 0,
      'seconds': 0,
-     'dt_atmos':720,
+     'dt_atmos':300,
      'current_date' : [1,1,1,0,0,0],
      'calendar' : 'thirty_day'
     },
@@ -163,23 +156,25 @@ exp.namelist = namelist = Namelist({
         'damping_order': 4,             
         'water_correction_limit': 200.e2,
         'reference_sea_level_press':1.0e5,
-        'num_levels':25,               #How many model pressure levels to use
+        'num_levels':30,               #How many model pressure levels to use
         'valid_range_t':[100.,800.],
         'initial_sphum':[2.e-6],
-        'vert_coord_option':'input', #Use the vertical levels from Frierson 2006
+        'vert_coord_option':'uneven_sigma', #automatically calculates the sigma levels using a subroutine in vert_coordinate.F90
         'surf_res':0.5,
         'scale_heights' : 11.0,
         'exponent':7.0,
         'robert_coeff':0.03
     },
-    'vert_coordinate_nml': {
-        'bk': [0.000000, 0.0117665, 0.0196679, 0.0315244, 0.0485411, 0.0719344, 0.1027829, 0.1418581, 0.1894648, 0.2453219, 0.3085103, 0.3775033, 0.4502789, 0.5244989, 0.5977253, 0.6676441, 0.7322627, 0.7900587, 0.8400683, 0.8819111, 0.9157609, 0.9422770, 0.9625127, 0.9778177, 0.9897489, 1.0000000],
-        'pk': [0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000],
-       }
 })
+
+exp.namelist = namelist
+exp.set_resolution('T85', 30)
+
 
 #Lets do a run!
 if __name__=="__main__":
-    exp.run(1, use_restart=False, num_cores=NCORES, run_idb=True)
-    for i in range(2,121):
-        exp.run(i, num_cores=NCORES, run_idb=True)
+    cb.compile()  # compile the source code to working directory $GFDL_WORK/codebase
+
+    # passing no command line options causes the model to perform spinup
+    if len(sys.argv) <= 1:
+        exp.run(1, use_restart=False, num_cores=NCORES)

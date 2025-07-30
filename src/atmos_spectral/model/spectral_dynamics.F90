@@ -96,6 +96,7 @@ public :: spectral_dynamics_init, spectral_dynamics, spectral_dynamics_end, get_
 public :: get_use_virtual_temperature, get_reference_sea_level_press, get_surf_geopotential
 public :: get_pk_bk, complete_robert_filter, complete_update_of_future
 public :: get_axis_id, spectral_diagnostics, get_initial_fields
+public :: perturb_fields_spectral, perturb_fields_grid
 
 !===============================================================================================
 
@@ -222,6 +223,26 @@ namelist /spectral_dynamics_nml/ use_virtual_temperature, damping_option, cutoff
                                  graceful_shutdown, json_logging,                                    &
                                  graceful_shutdown,                                                  &
 								 make_symmetric                                                       !GC/RG add make_symmetric option
+
+!===============================================================================================
+! These are new variables to be used in making the impulsive perturbations used in our predictability studies.
+! TODO: integrate these variables with the namelists so they can be specified using the Python wrapper
+logical :: do_perturbation_spec     = .true. 
+logical :: do_perturbation_grid     = .false.
+integer,parameter :: num_perturbations_max = 100 
+integer,dimension(num_perturbations_max) :: seconds_to_perturb          ! time values at which perturbations are added
+integer,dimension(num_perturbations_max) :: seed_values                 ! seeds for the RNG
+integer :: num_perturbations_actual = 1                                 ! we may not perturb at all times allowed
+
+
+
+real,dimension(num_perturbations_max) :: perturbation_fraction          ! TODO: change this so the perturbation technique can be altered more flexibly
+integer, allocatable :: rand_pert_seed(:)      ! size is allocated in spectral_dynamics_init and deallocated in spectral_dynamics_end
+integer :: seed         ! dummy variable passed to the perturbation subroutines as a random seed
+integer :: seed_size    ! the number of integers needed by the compiler to start a random number sequence.
+real    :: pert_frac    ! dummy variable for the instance of perturbation_fraction associated with ipert
+
+
 
 contains
 
@@ -407,6 +428,17 @@ do ntr=1,num_tracers
          ' is not a valid vertical advection scheme for tracers. Check your field_table.', FATAL)
   endif
 enddo
+
+!===============================================================================================
+! allocate the perturbation array with the proper size based on the compiler.
+call random_seed(size=seed_size)      ! gets the proper seed size
+allocate(rand_pert_seed(seed_size))   ! sets the perturbation seed array to that size
+
+! also, set the seed values -- TODO: remove once we integrate iwth namelist
+seconds_to_perturb(1) = 172800
+seed_values(1) = 1
+perturbation_fraction(1) = 1.0E-3
+!===============================================================================================
 
 call read_restart_or_do_coldstart(tracer_attributes, ocean_mask)
 
@@ -810,6 +842,11 @@ real, dimension(is:ie, js:je, num_levels             ) :: dt_ug_tmp, dt_vg_tmp, 
 real, dimension(is:ie, js:je, num_levels, num_tracers) :: dt_tracers_tmp
 
 integer :: j, k, time_level, seconds, days, p
+!===============================================================================================
+! perturbation variables
+integer :: seconds_abs                        ! converts the number of seconds into a total
+integer :: ipert = 1                          ! which perturbation are we on?
+!===============================================================================================
 real    :: delta_t
 !mj error message
 real    :: extrtmp
@@ -930,12 +967,44 @@ else
   robert_complete_for_fields = .true.
 endif
 
+!===============================================================================================
+! This code carries out perturbations on the spectral fields if do_perturbation_spec is true
+if (do_perturbation_spec) then
+  call get_time(Time, seconds, days)
+  seconds_abs = seconds + days*86400
+  ! print *, "do_perturbation_spec: the current model clock time is ", seconds_abs, "seconds"
+  if ((ipert .le. num_perturbations_actual) .and. (seconds_abs .eq. seconds_to_perturb(ipert))) then
+    print *, 'perturbing spectral fields at time', seconds_abs, 'seconds'
+    seed = seed_values(ipert)
+    pert_frac = perturbation_fraction(ipert)
+    call perturb_fields_spectral(seed, pert_frac)
+    ipert = ipert + 1
+  endif
+endif
+!===============================================================================================
+
 call trans_spherical_to_grid(divs(:,:,:,future), divg)
 call trans_spherical_to_grid(vors(:,:,:,future), vorg)
 call uv_grid_from_vor_div(vors(:,:,:,future), divs(:,:,:,future), ug(:,:,:,future), vg(:,:,:,future))
 call trans_spherical_to_grid(ts   (:,:,:,future), tg(:,:,:,future))
 call trans_spherical_to_grid(ln_ps(:,:,  future), ln_psg)
 psg(:,:,future) = exp(ln_psg)
+
+!===============================================================================================
+! As above, but on the gridded fields
+if (do_perturbation_grid) then
+  call get_time(Time, seconds, days)
+  seconds_abs = seconds + days*86400
+  ! print *, "do_perturbation_grid: the current model clock time is ", seconds_abs, "seconds"
+  if ((ipert .le. num_perturbations_actual) .and. (seconds_abs .eq. seconds_to_perturb(ipert))) then
+    print *, 'perturbing gridded fields at time', seconds_abs, 'seconds'
+    seed = seed_values(ipert)
+    pert_frac = perturbation_fraction(ipert)
+    call perturb_fields_grid(seed, pert_frac)
+    ipert = ipert + 1
+  endif
+endif
+!===============================================================================================
 
 if(minval(tg(:,:,:,future)) < valid_range_t(1) .or. maxval(tg(:,:,:,future)) > valid_range_t(2)) then
   pe_is_valid = .false.
@@ -1490,6 +1559,61 @@ return
 end subroutine complete_robert_filter
 !================================================================================
 
+! SUBROUTINES FOR PERTURBATIONS
+!===============================================================================================
+subroutine perturb_fields_spectral(seed, pert_frac)
+
+integer, intent(in) :: seed
+real, intent(in) :: pert_frac
+integer :: kpert, mpert, npert                ! dummy variables for perturbation do-loops
+real    :: random_perturbation
+
+rand_pert_seed(:) = seed                      ! gives all the entries of the seed the same value 
+call random_seed(put=rand_pert_seed)
+do mpert = max(ms,5),me
+    do npert = ns,ne
+        call random_number(random_perturbation)
+        ln_ps(mpert,npert,num_time_levels) = ln_ps(mpert,npert,num_time_levels) * (1.0 + pert_frac * (2.0*random_perturbation - 1))
+        do kpert = 1,num_levels
+            call random_number(random_perturbation)
+            vors(mpert,npert,kpert,num_time_levels) = vors(mpert,npert,kpert,num_time_levels) * (1.0 + pert_frac * (2.0*random_perturbation - 1))
+            call random_number(random_perturbation)
+            ts(mpert,npert,kpert,num_time_levels) = ts(mpert,npert,kpert,num_time_levels) * (1.0 + pert_frac * (2.0*random_perturbation - 1))
+        enddo
+    enddo
+enddo
+
+end subroutine perturb_fields_spectral
+!===============================================================================================
+
+!===============================================================================================
+subroutine perturb_fields_grid(seed, pert_frac)
+
+integer, intent(in) :: seed
+real, intent(in) :: pert_frac
+integer :: kpert, mpert, npert                ! dummy variables for perturbation do-loops
+real    :: random_perturbation
+
+rand_pert_seed(:) = seed                      ! gives all the entries of the seed the same value 
+call random_seed(put=rand_pert_seed)
+do mpert = is,ie
+    do npert = js,je
+        call random_number(random_perturbation)
+        psg(mpert,npert,num_time_levels) = psg(mpert,npert,num_time_levels) * (1.0 + pert_frac * (2.0*random_perturbation - 1))
+        do kpert = 1,num_levels
+            call random_number(random_perturbation)
+            ug(mpert,npert,kpert,num_time_levels) = ug(mpert,npert,kpert,num_time_levels) * (1.0 + pert_frac * (2.0*random_perturbation - 1))
+            call random_number(random_perturbation)
+            vg(mpert,npert,kpert,num_time_levels) = vg(mpert,npert,kpert,num_time_levels) * (1.0 + pert_frac * (2.0*random_perturbation - 1))
+            call random_number(random_perturbation)
+            tg(mpert,npert,kpert,num_time_levels) = tg(mpert,npert,kpert,num_time_levels) * (1.0 + pert_frac * (2.0*random_perturbation - 1))
+        enddo
+    enddo
+enddo
+
+end subroutine perturb_fields_grid
+!===============================================================================================
+
 subroutine spectral_dynamics_end(tracer_attributes, Time)
 
 type(tracer_type), intent(in), dimension(:) :: tracer_attributes
@@ -1537,6 +1661,10 @@ deallocate(ln_ps, vors, divs, ts)
 deallocate(vorg, divg)
 deallocate(surf_geopotential)
 deallocate(spec_tracers, grid_tracers)
+!===============================================================================================
+! Addition for perturbations
+deallocate(rand_pert_seed)
+!===============================================================================================
 
 if(use_implicit) call implicit_end
 call spectral_damping_end
@@ -1930,5 +2058,6 @@ deallocate(id_tr)
 return
 end subroutine spectral_diagnostics_end
 !===================================================================================
+
 
 end module spectral_dynamics_mod
