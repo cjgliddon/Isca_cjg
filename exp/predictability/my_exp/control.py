@@ -28,8 +28,8 @@ cb = IscaCodeBase.from_directory(GFDL_BASE)
 exp = Experiment(expname, codebase=cb)
 
 #Tell model how to write diagnostics
-my_diag.add_field('dynamics', 'ucomp', time_avg=False)
-my_diag.add_field('dynamics', 'vcomp', time_avg=False)
+#my_diag.add_field('dynamics', 'ucomp', time_avg=False)
+#my_diag.add_field('dynamics', 'vcomp', time_avg=False)
 exp.diag_table = my_diag
 
 #Empty the run directory ready to run
@@ -47,34 +47,30 @@ exp.namelist['main_nml'].update({
 exp.set_resolution('T85', 30)
 
 
-#Lets do a run!
+# Lets do a run!
 if __name__=="__main__":
     print(f"Current directory: {base_dir}")
-    cb.compile()  # compile the source code to working directory $GFDL_WORK/codebase
 
-    # passing no command line options causes the model to perform spinup
-    # first, check if the restart files for first 2 years exist
-    # TODO: make this even more elegant so model automatically restarts where it left off
-    res_path = os.path.join(exp.restartdir, 'res0024.tar.gz')
-    if not os.path.exists(res_path):
-        exp.run(1, use_restart=False, num_cores=NCORES, overwrite_data=True)
-        for i in range(2,25):
-            exp.run(i, num_cores=NCORES, overwrite_data=True)
+    # recompile code, but only if we want (turned off for now because of bugs in the codebase)
+    recompile = False
+    if recompile:
+        cb.compile()  # compile the source code to working directory $GFDL_WORK/codebase
+
+    # get the initial and final chunk numbers of the run
+    run_i = int(sys.argv[1])
+    if len(sys.argv) > 2:
+        run_f = int(sys.argv[2]) + 1
     else:
-        for i in range(25, 50):
-            exp.run(i, num_cores=NCORES, overwrite_data=True)
-        # only do tracking after we've run the full ensemble
-        if len(sys.argv) > 1:
-            do_tracking = bool(int(sys.argv[1]))
-            move_to_storage = bool(int(sys.argv[2]))
-            if do_tracking:
-                subprocess.run([os.path.join(base_dir, "control-tracking.sh"), expname])
+        run_f = run_i + 1
+
+    for j in range(run_i, run_f):
+        use_restart = False if j == 1 else True     # don't use restart file on first run of spinup
+        exp.run(j, num_cores=NCORES, overwrite_data=True, use_restart=use_restart)
+        if len(sys.argv) > 3:
+            move_to_storage = bool(int(sys.argv[3]))
             if move_to_storage:
-                for i in range(1, 50):
-                    destination = os.path.join(GFDL_STORAGE, expname, exp.runfmt % i)
-                    if os.path.exists(destination):
-                        shutil.rmtree(destination)
-                    shutil.move(os.path.join(GFDL_DATA, expname, exp.runfmt % i), destination)
-                if do_tracking:
-                    shutil.move(os.path.join(GFDL_DATA, expname, 'postprocessed'), os.path.join(GFDL_DATA, expname, 'postprocessed'))
-                    shutil.move(os.path.join(GFDL_DATA, expname, 'tracks'), os.path.join(GFDL_DATA, expname, 'tracks'))
+                print(f"Moving run {j} to storage...")
+                destination = os.path.join(GFDL_STORAGE, expname, 'control', exp.runfmt % j)
+                if os.path.exists(destination):
+                    shutil.rmtree(destination)
+                shutil.move(os.path.join(GFDL_DATA, expname, 'control', exp.runfmt % j), destination)

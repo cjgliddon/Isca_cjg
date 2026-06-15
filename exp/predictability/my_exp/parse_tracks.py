@@ -42,8 +42,9 @@ if __name__ == '__main__':
             patch_list = []     # a list of start time/ensemble member pairs with unsuccessful tracking
             complete = True
 
-            for time in np.arange(365.5, 720.0, 10.0):
-                t0_mem = ((time - 0.25) // 30)*30 + 0.25 
+            for time in np.arange(360.0, 1440.0+10.0, 10.0):     # must be consistent with exp_workflow.sh
+                # t0_mem = ((time - 0.25) // 30)*30 + 0.25       # uncomment this line if not using trim_data in specpert
+                t0_mem = time                                    # comment this line if not using trim_data in specpert
                 # dataroot = f'/orcd/data/talia_tb/001/aqua_gcm_runs/frierson_moist/ensembles/{time}/spec_mag_0.02'
                 pert_str = 'spec_mag_0.02'
                 for mem_id in list(range(1, 11)):
@@ -70,13 +71,15 @@ if __name__ == '__main__':
                             patch_list.append((time, mem_id))
                             complete = False
 
-            for (t_start, i_mem) in patch_list:
+            for (t_start, mem_id) in patch_list:
 
-                memdir = join(GFDL_STORAGE, expname, 'ensembles', str(time), pert_str, f'b{mem_id:02}')
-                run_len = int(20 + np.ceil(t_start % 30))    # must agree with the run length in specpert.py
+                memdir = join(GFDL_STORAGE, expname, 'ensembles', str(t_start), pert_str, f'b{mem_id:02}')
+                # run_len = int(20 + np.ceil(t_start % 30))    # must agree with the run length in specpert.py
+                run_len = 30.25
                 num_tracking_chunks = int(np.ceil(run_len*4 / 80)) 
                 subprocess.run(["/home/cgliddon/Isca/postprocessing/agcm_tracking_tools/patch_tracking.bash", 
-                                join(GFDL_STORAGE, expname, memdir), str(num_tracking_chunks)])
-                print(f"Patched tracks for {(t_start, i_mem)}")
+                                join(GFDL_STORAGE, expname, memdir), str(num_tracking_chunks), 
+                                join(GFDL_STORAGE, expname, "postprocessed", "base_t_mean.nc")])        # mean file
+                print(f"Patched tracks for {(t_start, mem_id)}")
 
             print("Redoing loop...")

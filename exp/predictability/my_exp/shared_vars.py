@@ -1,31 +1,34 @@
-# This document contains all parameters which are shared between control and perturbed model runs
+# This document contains all parameters which are shared between control and perturbed model runs.
+import os
 
-GFDL_STORAGE = '/orcd/data/talia_tb/001/aqua_gcm_runs'
+# GFDL_STORAGE = '/orcd/data/talia_tb/001/aqua_gcm_runs'
+GFDL_STORAGE = os.environ["GFDL_STORAGE"]
 
-expname = 'frierson_my_experiment'          # your experiment name can also include subdirectories, e.g. "frierson_my_experiment/0.5_omega"
+
+expname = 'my_exp'          # your experiment name can also include subdirectories, e.g. "my_exp/4xCO2"
 from isca import DiagTable, Namelist
 
 my_diag = DiagTable()
 my_diag.add_file('atmos_6_hourly', 6, 'hours', time_units='hours')
 
-#Tell model which diagnostics to write
+# Tell model which diagnostics to write
 my_diag.add_field('dynamics', 'ps', time_avg=False)
 my_diag.add_field('dynamics', 'bk')
 my_diag.add_field('dynamics', 'pk')
-#my_diag.add_field('atmosphere', 'precipitation', time_avg=False)
-#my_diag.add_field('mixed_layer', 't_surf', time_avg=False)
 my_diag.add_field('dynamics', 'sphum', time_avg=False)
-# my_diag.add_field('dynamics', 'ucomp', time_avg=False)
-# my_diag.add_field('dynamics', 'vcomp', time_avg=False)
+my_diag.add_field('dynamics', 'ucomp', time_avg=False)
+my_diag.add_field('dynamics', 'vcomp', time_avg=False)
 my_diag.add_field('dynamics', 'temp', time_avg=False)
 my_diag.add_field('dynamics', 'vor', time_avg=False)
 my_diag.add_field('dynamics', 'div', time_avg=False)
+my_diag.add_field('dynamics', 'omega', time_avg=False)
 my_diag.add_field('dynamics', 'height', time_avg=False)
 
 
 # Define values for the 'core' namelist
 # You can make any changes to parameters here
 my_namelist = Namelist({
+    # Run length & calendar info
     'main_nml':{
      'days'   : 30,
      'hours'  : 0,
@@ -36,6 +39,7 @@ my_namelist = Namelist({
      'calendar' : 'thirty_day'
     },
 
+    # Moist physics parameterization
     'idealized_moist_phys_nml': {
         'do_damping': True,
         'turb':True,
@@ -99,19 +103,19 @@ my_namelist = Namelist({
     },
     
     'sat_vapor_pres_nml': {
-        'do_simple':True
+        'do_simple':True                # Clausius-Clapeyron scaling
     },
     
     'damping_driver_nml': {
         'do_rayleigh': True,
-        'trayfric': -0.25,              # neg. value: time in *days*
-        'sponge_pbottom':  5000.,           #Bottom of the model's sponge down to 50hPa (units are Pa)
+        'trayfric': -0.25,                  # neg. value: time in *days*
+        'sponge_pbottom':  5000.,           # Bottom of the model's sponge down to 50hPa (units are Pa)
         'do_conserve_energy': True,             
     },
 
     'two_stream_gray_rad_nml': {
-        'rad_scheme': 'frierson',            #Select radiation scheme to use, which in this case is Frierson
-        'do_seasonal': False,                #do_seasonal=false uses the p2 insolation profile from Frierson 2006. do_seasonal=True uses the GFDL astronomy module to calculate seasonally-varying insolation.
+        'rad_scheme': 'frierson',            # Select radiation scheme to use, which in this case is Frierson
+        'do_seasonal': False,                # do_seasonal=false uses the p2 insolation profile from Frierson 2006. do_seasonal=True uses the GFDL astronomy module to calculate seasonally-varying insolation.
         'atm_abs': 0.2,                      # default: 0.0        
     },
 
@@ -133,7 +137,7 @@ my_namelist = Namelist({
         'damping_order': 4,             
         'water_correction_limit': 200.e2,
         'reference_sea_level_press':1.0e5,
-        'num_levels':30,               #How many model pressure levels to use
+        'num_levels':30,               # How many model pressure levels to use
         'valid_range_t':[100.,800.],
         'initial_sphum':[2.e-6],
         'vert_coord_option':'uneven_sigma', #automatically calculates the sigma levels using a subroutine in vert_coordinate.F90

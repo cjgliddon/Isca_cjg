@@ -1,0 +1,25 @@
+# ---------------------------------------------------------------
+# compute_anomaly.py configuration
+# ---------------------------------------------------------------
+
+# Path to the input dataset (raw multi-level NetCDF file)
+dataset: /orcd/data/talia_tb/001/aqua_gcm_runs/default/run0013/atmos_6_hourly.nc
+
+# Path to the climatology file (raw multi-level model output)
+climatology: /orcd/data/talia_tb/001/aqua_gcm_runs/default/postprocessed/base_t_mean.nc
+
+# Variables: "varname:level"
+# Level can be a pressure in hPa, 'surface', or a direct model level index
+variables:
+  - ps:surf
+
+# Model pressure levels in hPa (optional: falls back to cdo_utils.PLEVELS)
+plevels: [1, 2, 3, 5, 7, 10, 20, 30, 50, 70, 100, 150, 200, 250, 300,
+          400, 500, 600, 700, 750, 800, 850, 900, 925, 950, 975, 1000, 1013]
+
+# Prefix for output anomaly files (default: 'anomaly')
+# Outputs will be named {output_prefix}_{var}{level}.nc
+output_prefix: anomaly
+
+# Output directory (optional: defaults to the dataset's parent directory)
+# output_dir: /path/to/custom/output/dir

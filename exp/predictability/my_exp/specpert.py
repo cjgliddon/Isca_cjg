@@ -49,60 +49,56 @@ exp.namelist['spectral_dynamics_nml'].update({
 exp.set_resolution('T85', 30)
 
 
-#Lets do a run!
+# Let's do a run!
 if __name__=="__main__":
     # cb.compile()  # compile the source code to working directory $GFDL_WORK/codebase
 
     t0_mem = float(sys.argv[1])         # perturbation time
-    i_mem = int(sys.argv[2])            # ensemble member (number affects RNG seed)
+    mem_range = range(                  # which ensemble members to run
+        int(sys.argv[2], int(sys.argv[3])+1)
+        )
     # these lines make sure the working directory is different for each member, allowing the ensembles to run in parallel
-    exp.workdir = os.path.join(exp.workdir, "mem" + str(i_mem))
+    exp.workdir = os.path.join(exp.workdir, "t0_" + str(t0_mem))
     print(f'New working directory: {exp.workdir}')
     exp.rundir = os.path.join(exp.workdir, 'run')          # temporary area an individual run will be performed
 
 
     # specify where restart file is saved
-    nrestart = int(t0_mem // 30)
-    restartf = os.path.join(GFDL_DATA, expname, 'restarts', ('res%04d.tar.gz' % (nrestart)))
 
     dt = exp.namelist['main_nml']['dt_atmos']
-    run_len = int(20 + np.ceil(t0_mem % 30))    # days; we want to make sure we get a full 30 days *after* each perturbation
-    exp.namelist['main_nml']['days'] = run_len
+    dt_save_days = 0.25
+    ctrl_chunk_len = 30
+    n_days_after_pert = 30
+    run_len = n_days_after_pert + (t0_mem - dt_save_days) % ctrl_chunk_len + dt_save_days    # days; we want to make sure we get a full 30 days *after* each perturbation. Once again, in the edge case where t0_mem % 30 = 0 we want a 60-day run instead
+    exp.namelist['main_nml']['days']  = int(run_len)
+    exp.namelist['main_nml']['hours'] = int(24*(run_len % 1))   # fractional part x 24 h
+    nrestart = int((t0_mem - dt_save_days ) // ctrl_chunk_len)      # edge case: if t0_mem % 30 = 0, then we restart on the previous step to get last timestep
+    restartf = os.path.join(GFDL_DATA, expname, 'restarts', ('res%04d.tar.gz' % (nrestart)))
+
 
     pfrac = 2.0E-2      # "perturbation fraction"
 
     datadir = 'ensembles'
-    subdir = f'spec_mag_{pfrac}'
-    exp.runfmt = os.path.join(datadir, str(t0_mem), subdir, 'b%02d')
+    exp.runfmt = os.path.join(datadir, str(t0_mem), 'mem%02d')
 
-    # update namelist dictionary with parameters relevant to breeding
-    exp.namelist['spectral_dynamics_nml'].update({
-        'seconds_to_perturb': int(t0_mem*86400 + dt),
-        'seed_values': [i_mem],
-        'perturbation_fraction': [pfrac],
-    })
     # run the experiment!
-    exp.run(i_mem, restart_file=restartf, num_cores=NCORES, overwrite_data=True, save_restarts=False)
+    for i_mem in mem_range:
+        exp.namelist['spectral_dynamics_nml'].update({
+            'seconds_to_perturb': int(t0_mem*86400 + dt),
+            'seed_values': [i_mem],
+            'perturbation_fraction': [pfrac],
+        })
+        exp.run(i_mem, restart_file=restartf, num_cores=NCORES, overwrite_data=True, save_restarts=False)
 
-    do_tracking = bool(int(sys.argv[3]))
-    if do_tracking: 
-        climo_file = os.path.join(GFDL_DATA, expname, 'postprocessed', 'base_t_mean.nc')
-        print("Climatology file stored in:")
-        print(climo_file)       
-        
-        ident = np.random.randint(100000, 999999)
-        print(f"Ensemble member {i_mem} initialized at {t0_mem} has random ident {ident}")
-        num_tracking_chunks = int(np.ceil(run_len*4 / 80)) 
-        print(f"Number of chunks used in tracking: {num_tracking_chunks}")
-        subprocess.run([os.path.join(base_dir, "tracking_single.bash"), climo_file, 
-                        os.path.join(GFDL_DATA, expname, exp.runfmt % i_mem), str(ident), str(num_tracking_chunks)])
-    do_cleanup = bool(int(sys.argv[4]))
-    print(f"Cleanup? {do_cleanup}")
-    if do_cleanup:
-        files_to_remove = glob.glob(os.path.join(GFDL_DATA, expname, exp.runfmt % i_mem, "*.nc"))
-        for fn in files_to_remove:
-            os.remove(fn)
-    destination = os.path.join(GFDL_STORAGE, expname, exp.runfmt % i_mem)
-    if os.path.exists(destination):
-        shutil.rmtree(destination)
-    shutil.move(os.path.join(GFDL_DATA, expname, exp.runfmt % i_mem), destination)
+        print(f"Ensemble member {i_mem} for start time {t0_mem} run successfully completed")
+
+        # This "trims" off the portion of the ensemble run that doesn't 
+        trim_data = True
+        if trim_data:
+            n_timesteps = int(run_len/dt_save_days)
+            it0, itf = n_timesteps - int(n_days_after_pert/dt_save_days), n_timesteps
+            fn_dir = os.path.join(GFDL_DATA, expname, exp.runfmt % i_mem)
+            subprocess.run([os.path.join(GFDL_BASE, "postprocessing", "trim_output_times.sh"),
+                            fn_dir, str(it0), str(itf)])
+
+        print(f"Ensemble member {i_mem} for start time {t0_mem} data successfully trimmed")

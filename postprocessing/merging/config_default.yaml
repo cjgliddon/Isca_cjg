@@ -1,0 +1,26 @@
+# Configuration for GCM postprocessing
+# exproot: /orcd/data/talia_tb/001/aqua_gcm_runs/moisture/es0_1.25
+exproot: /orcd/data/talia_tb/001/aqua_gcm_runs/default
+chunks: [13, 120]  # [start, end]
+
+# Name of input NetCDF files in each run directory
+input_filename: atmos_6_hourly.nc
+
+# Variables to extract: "varname:level"
+# level can be:
+#   - pressure in hPa (850, 500, etc.) - will find nearest model level
+#   - 'surface' or 'surf' for surface level
+#   - direct model level index (use with caution)
+variables:
+  - height:500
+  - height:250
+  - ps:surf
+  - vor:850
+
+# Model pressure levels in hPa (optional - will use script default if not specified)
+# These should be in order from model top to bottom
+#plevels: [1, 2, 3, 5, 7, 10, 20, 30, 50, 70, 100, 150, 200, 250, 300, 
+#          400, 500, 600, 700, 750, 800, 850, 900, 925, 950, 975, 1000, 1013]
+
+# Compute anomalies from time-mean for base_ps_vor file
+compute_anomalies: true
