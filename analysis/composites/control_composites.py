@@ -1,3 +1,6 @@
+# Functions for generating composites of synoptic fields around weather features in the *control* run.
+# TODO: remove "allowed_starts" as an argument?
+
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import numpy as np
 import os
@@ -10,6 +13,7 @@ import xarray as xr
 sys.path.append('..')
 import observable_functions as of
 from track import *
+from experiment import PredictabilityExperiment
 
 import pdb
 
@@ -129,7 +133,7 @@ def extract_window(ds, center_lon, center_lat, time=None, window_size=32):
 # Private helpers
 # ---------------------------------------------------------------------------
 
-def _is_track_valid(tr, allowed_starts, lat_range, n_offset):
+def _is_track_valid(tr, allowed_starts, lat_range, n_offset, int_metric='nearby_maximum'):
     """
     Check whether a track passes the filtering criteria and return its peak
     coordinates, or None if the track should be excluded.
@@ -144,7 +148,7 @@ def _is_track_valid(tr, allowed_starts, lat_range, n_offset):
     elif t0 not in allowed_starts:
         return None
 
-    t, lon, lat = tr.get_peak_coords(convert_date=False, n_offset=n_offset)
+    t, lon, lat = tr.get_peak_coords(convert_date=False, n_offset=n_offset, metric=int_metric)
     if np.isnan(t):
         return None
 
@@ -173,7 +177,7 @@ def _accumulate_window(da_window, lat, da_comp, invert_SH):
         return da_comp
 
 
-def _make_canonical_grid(da, tdict, allowed_starts, lat_range, window_size):
+def _make_canonical_grid(da, tdict, allowed_starts, lat_range, window_size, int_metric='nearby_maximum'):
     """
     Extract a single valid window to obtain a canonical (lat, lon) reference
     grid.  Every subsequent window will have its coordinates replaced with
@@ -201,7 +205,7 @@ def _make_canonical_grid(da, tdict, allowed_starts, lat_range, window_size):
     canonical_lon : np.ndarray
     """
     for tr in tdict.values():
-        result = _is_track_valid(tr, allowed_starts, lat_range, n_offset=0)
+        result = _is_track_valid(tr, allowed_starts, lat_range, n_offset=0, int_metric=int_metric)
         if result is None:
             continue
         t_date, lon, lat = result
@@ -219,7 +223,7 @@ def _assign_canonical_coords(da_window, canonical_lat, canonical_lon):
 # Single-offset, single-variable composite
 # ---------------------------------------------------------------------------
 
-def get_peak_composites(tdict, ds, obs, allowed_starts,
+def get_peak_composites(tdict, ds, obs, allowed_starts, int_metric='nearby_maximum',
                         lat_range=(30, 60), time_offset=0.0,
                         use_anom_fields=False, invert_SH=False,
                         window_size=32, canonical_grid=None):
@@ -274,14 +278,15 @@ def get_peak_composites(tdict, ds, obs, allowed_starts,
 
     if canonical_grid is None:
         canonical_grid = _make_canonical_grid(
-            da, tdict, allowed_starts, lat_range, window_size)
+            da, tdict, allowed_starts, lat_range, window_size,
+            int_metric=int_metric)
     canonical_lat, canonical_lon = canonical_grid
 
     da_comp = 0
     n_feat = 0
     for key, tr in tdict.items():
         # print(tr.lat[0])
-        result = _is_track_valid(tr, allowed_starts, lat_range, n_offset)
+        result = _is_track_valid(tr, allowed_starts, lat_range, n_offset, int_metric=int_metric)
         if result is None:
             continue
         t_date, lon, lat = result
@@ -301,8 +306,8 @@ def get_peak_composites(tdict, ds, obs, allowed_starts,
 # Time-series of composites (multiple offsets)
 # ---------------------------------------------------------------------------
 
-def get_composite_timeseries(tdict, ds, obs, allowed_starts,
-                              time_offsets, lat_range=(30, 60),
+def get_composite_timeseries(tdict, ds, obs, allowed_starts, time_offsets, 
+                              int_metric='nearby_maximum', lat_range=(30, 60),
                               use_anom_fields=False, invert_SH=False,
                               window_size=32, n_workers=1,
                               canonical_grid=None):
@@ -352,18 +357,19 @@ def get_composite_timeseries(tdict, ds, obs, allowed_starts,
     if canonical_grid is None:
         da_ref = obs(ds)
         canonical_grid = _make_canonical_grid(
-            da_ref, tdict, allowed_starts, lat_range, window_size)
+            da_ref, tdict, allowed_starts, lat_range, window_size,
+            int_metric=int_metric)
 
     if n_workers > 1:
         results = _parallel_composite_timeseries(
-            tdict, ds, obs, allowed_starts, time_offsets,
+            tdict, ds, obs, allowed_starts, int_metric, time_offsets, 
             lat_range, use_anom_fields, invert_SH, window_size,
             n_workers, canonical_grid)
     else:
         results = {}
         for tau in time_offsets:
             da_comp, n_feat = get_peak_composites(
-                tdict, ds, obs, allowed_starts,
+                tdict, ds, obs, allowed_starts, int_metric=int_metric,
                 lat_range=lat_range, time_offset=tau,
                 use_anom_fields=use_anom_fields, invert_SH=invert_SH,
                 window_size=window_size, canonical_grid=canonical_grid)
@@ -378,8 +384,8 @@ def get_composite_timeseries(tdict, ds, obs, allowed_starts,
     return da_stacked, n_feats
 
 
-def _parallel_composite_timeseries(tdict, ds, obs, allowed_starts,
-                                   time_offsets, lat_range,
+def _parallel_composite_timeseries(tdict, ds, obs, allowed_starts, int_metric,
+                                   time_offsets,  lat_range,
                                    use_anom_fields, invert_SH,
                                    window_size, n_workers, canonical_grid):
     """Run get_peak_composites in parallel over time_offsets."""
@@ -388,7 +394,7 @@ def _parallel_composite_timeseries(tdict, ds, obs, allowed_starts,
         futures = {
             executor.submit(
                 get_peak_composites,
-                tdict, ds, obs, allowed_starts,
+                tdict, ds, obs, allowed_starts, int_metric,
                 lat_range, tau, use_anom_fields, invert_SH,
                 window_size, canonical_grid
             ): tau
@@ -404,7 +410,8 @@ def _parallel_composite_timeseries(tdict, ds, obs, allowed_starts,
 # Multi-variable composite
 # ---------------------------------------------------------------------------
 
-def get_multivar_composites(tdict, obs_list, allowed_starts,
+def get_multivar_composites(tdict, obs_list, allowed_starts, 
+                            int_metric='nearby_maximum',
                             time_offsets=None,
                             lat_range=(30, 60),
                             use_anom_fields=False, invert_SH=False,
@@ -470,7 +477,8 @@ def get_multivar_composites(tdict, obs_list, allowed_starts,
     first_entry = obs_list[0]
     da_ref = first_entry['obs'](first_entry['ds'])
     canonical_grid = _make_canonical_grid(
-        da_ref, tdict, allowed_starts, lat_range, window_size)
+        da_ref, tdict, allowed_starts, lat_range, window_size,
+        int_metric=int_metric)
 
     data_vars = {}
     n_feats = {}
@@ -484,6 +492,7 @@ def get_multivar_composites(tdict, obs_list, allowed_starts,
         da_ts, nf = get_composite_timeseries(
             tdict, ds_var, obs, allowed_starts,
             time_offsets=time_offsets,
+            int_metric=int_metric,
             lat_range=lat_range,
             use_anom_fields=use_anom_fields,
             invert_SH=inv_sh,
@@ -511,7 +520,59 @@ def get_multivar_composites(tdict, obs_list, allowed_starts,
 # ---------------------------------------------------------------------------
 
 GFDL_STORAGE = os.environ['GFDL_STORAGE']
+GFDL_DATA    = os.environ['GFDL_DATA']
 pv_identfunc = lambda ds: ds['pv']
+
+def test_default():
+
+    print("Running 'test_default'...")
+
+    expname = 'default'
+    exp     = PredictabilityExperiment(expname, root_folder=GFDL_STORAGE)
+    vars = ['MSLP', 'vor850', 'Z250', 'Z500']
+    feature_types = ['cycs', 'acycs']
+    allowed_starts = np.arange(369.0, 1450.0, 10.0)
+    save_dir = exp.anly_dir
+
+    # list of fields we'll include in the composites
+    obs_list = [
+        {
+            'ds':   exp.load_climo_field("base_ps.nc"),
+            'obs':  of.surface_pressure,
+            'name': 'ps',
+            'invert_SH': False,
+        },
+        {
+            'ds':   exp.load_climo_field("base_vor850.nc"),
+            'obs':  of.vorticity_850,
+            'name': 'vor850',
+            'invert_SH': True,
+        },
+        {
+            'ds':   exp.load_climo_field("anomaly_height250.nc"),
+            'obs':  of.height_250,
+            'name': 'Z250_a',
+            'invert_SH': False,
+        },
+        {
+            'ds':   exp.load_climo_field("anomaly_height500.nc"),
+            'obs':  of.height_500,
+            'name': 'Z500_a',
+            'invert_SH': False,
+        },
+    ]
+
+    for var in vars:
+        for ft in feature_types:
+            ct = exp.get_control_tracks(var, ft)
+            ds_comp, n_feats = get_multivar_composites(ct, obs_list, allowed_starts,
+                                                       time_offsets=np.arange(-2.0, 2.25, 0.25))
+            pickle.dump((ds_comp, n_feats),
+                        open(join(save_dir, f"{var}_{ft}_control_composites.pickle"), 'wb'))
+            print(f"Feature composites for {var}_{ft} saved")
+
+
+
 
 def test():
     expname   = sys.argv[1]
@@ -589,35 +650,71 @@ def main():
 
     obs_list = [
         {
-            'ds':   xr.open_dataset(join(expdir, 'postprocessed', 'base_anoms.nc')),
+            'ds':   xr.open_dataset(join(expdir, 'control', 'postprocessed', 'base_anoms.nc')),
             'obs':  of.surface_pressure,
             'name': 'ps',
             'invert_SH': False,
         },
         {
-            'ds':   xr.open_dataset(join(expdir, 'postprocessed', 'base_ps_vor.nc')),
+            'ds':   xr.open_dataset(join(expdir, 'control', 'postprocessed', 'base_ps_vor.nc')),
             'obs':  of.vorticity_850,
             'name': 'vor850',
             'invert_SH': True,
         },
+#        {
+#            'ds':   xr.open_dataset(join(expdir, 'control', 'postprocessed', 'anomaly_temp850.nc')),  # surface temp. anomalies
+#            'obs':  of.temperature_850,
+#            'name': 'T850_p',
+#            'invert_SH': False,
+#        },
+#        {
+#            'ds':   xr.open_dataset(join(expdir, 'control', 'postprocessed', 'base_temp850.nc')),  # surface temp.
+#            'obs':  of.temperature_850,
+#            'name': 'T850',
+#            'invert_SH': False,
+#        },
         {
-            'ds':   xr.open_dataset(join(expdir, 'postprocessed', 'pv250_anoms.nc')),
-            'obs':  of.pv,
-            'name': 'pv250',
-            'invert_SH': True,
+            'ds':   xr.open_dataset(join(expdir, 'control', 'postprocessed', 'anomaly_height500.nc')), # Z500 anomalies
+            'obs':  of.height_500,
+            'name': 'Z500_p',
+            'invert_SH': False,
         },
         {
-            'ds':   xr.open_dataset(join(expdir, 'postprocessed', 'pv500_anoms.nc')),
-            'obs':  of.pv,
-            'name': 'pv500',
-            'invert_SH': True,
+            'ds':   xr.open_dataset(join(expdir, 'control', 'postprocessed', 'base_height500.nc')), # Z500 anomalies
+            'obs':  of.height_500,
+            'name': 'Z500',
+            'invert_SH': False,
         },
-        {
-            'ds':   xr.open_dataset(join(expdir, 'postprocessed', 'pv850_anoms.nc')),
-            'obs':  of.pv,
-            'name': 'pv850',
-            'invert_SH': True,
-        }     
+#        {
+#            'ds':   xr.open_dataset(join(expdir, 'postprocessed', 'vedd_tedd_850.nc')), # v'T'
+#            'obs':  of.temperature_850,
+#            'name': "v'T'850",
+#            'invert_SH': True,
+#        },
+#        {
+#            'ds':   xr.open_dataset(join(expdir, 'control', 'postprocessed', 'pv250.nc')),
+#            'obs':  of.pv,
+#            'name': 'pv250_b',
+#            'invert_SH': True,
+#        },
+#        {
+#            'ds':   xr.open_dataset(join(expdir, 'control', 'postprocessed', 'pv250_anoms.nc')),
+#            'obs':  of.pv,
+#            'name': 'pv250',
+#            'invert_SH': True,
+#        },
+#        {
+#            'ds':   xr.open_dataset(join(expdir, 'control', 'postprocessed', 'pv500_anoms.nc')),
+#            'obs':  of.pv,
+#            'name': 'pv500',
+#            'invert_SH': True,
+#        },
+#        {
+#            'ds':   xr.open_dataset(join(expdir, 'control', 'postprocessed', 'pv850_anoms.nc')),
+#            'obs':  of.pv,
+#            'name': 'pv850',
+#            'invert_SH': True,
+#        }     
     ]
 
     feat_types = ['vor850_cycs', 'vor850_acycs']
@@ -625,9 +722,9 @@ def main():
     for feat_type in feat_types:
         track_var = feat_type[:feat_type.find("_")]
         basename  = f"{feat_type}.pickle"
-        tdc = load_trackdict_from_file(join(expdir, 'tracks', track_var, basename))
+        tdc = load_trackdict_from_file(join(expdir, 'control', 'tracks', basename))
 
-        allowed_starts = np.arange(360.5, 1080.25, 0.25)
+        allowed_starts = np.arange(360.25, 1440.25, 0.25)
         time_offsets   = np.arange(-5.0, 5.25, 0.25)   # ±5 days in 6-hourly steps
 
         ds_comp, n_feats = get_multivar_composites(
@@ -639,7 +736,7 @@ def main():
         print("Feature counts:", n_feats)
 
         pickle.dump((ds_comp, n_feats),
-                    open(join(expdir, 'postprocessed', f'{feat_type}_ctrl_composite.pickle'), 'wb'))
+                    open(join(expdir, 'control', 'postprocessed', f'{feat_type}_ctrl_composite.pickle'), 'wb'))
 
 def main2():
     expname   = sys.argv[1]
@@ -674,7 +771,7 @@ def main2():
         basename  = f"{feat_type}.pickle"
         tdc = load_trackdict_from_file(join(expdir, 'tracks', track_var, basename))
 
-        allowed_starts = np.arange(360.5, 1080.25, 0.25)
+        allowed_starts = np.arange(360.25, 1440.25, 0.25)
         time_offsets   = np.arange(-5.0, 5.25, 0.25)   # ±5 days in 6-hourly steps
 
         ds_comp, n_feats = get_multivar_composites(
@@ -686,8 +783,9 @@ def main2():
         print("Feature counts:", n_feats)
 
         pickle.dump((ds_comp, n_feats),
-                    open(join(expdir, 'postprocessed', f'{feat_type}_ctrl_pvtend_composite.pickle'), 'wb'))
+                    open(join(expdir, 'control', 'postprocessed', f'{feat_type}_ctrl_pvtend_composite.pickle'), 'wb'))
 
 
 if __name__ == '__main__':
-    main()
+    test_default()
+#    main2()

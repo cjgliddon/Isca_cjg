@@ -1,6 +1,6 @@
 # Configuration for GCM postprocessing
 # exproot: /orcd/data/talia_tb/001/aqua_gcm_runs/moisture/es0_1.25
-exproot: /orcd/data/talia_tb/001/aqua_gcm_runs/default
+exproot: /orcd/data/talia_tb/002/aqua_gcm_runs/default/control
 chunks: [13, 120]  # [start, end]
 
 # Name of input NetCDF files in each run directory

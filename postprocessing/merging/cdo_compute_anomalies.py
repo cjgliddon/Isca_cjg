@@ -127,6 +127,7 @@ class AnomalyCalculator:
             mem='16G',
             stdout='compute_anomaly.out',
             stderr='compute_anomaly.err',
+            extra_directives=["-t 0-00:30"]
         )
 
         lines += [
@@ -148,23 +149,41 @@ class AnomalyCalculator:
             level_idx = v['level_idx']
             vsuffix   = v['var_suffix']
             out       = v['output_path']
-
-            lines += [
-                f"# ---- {var_name} at level index {level_idx} ----",
-                "",
-                f"# 1. Extract {var_name} at level {level_idx} from dataset",
-                f"cdo -sellevidx,{level_idx} -selname,{var_name} \\",
-                f"    {self.dataset_path} \\",
-                f"    $TMPDIR/extracted_{vsuffix}.nc",
-                "",
-                "# 2. Anomaly = dataset field - climatology mean",
-                f"cdo -sub $TMPDIR/extracted_{vsuffix}.nc \\",
-                f"    {self.clim_path}.nc \\",
-                f"    {out}",
-                "",
-                f'echo "Saved: {out}"',
-                "",
-            ]
+            
+            if var_name == 'ps':
+                lines += [
+                    f"# ---- {var_name} at surface ----",
+                    "",
+                    f"# 1. Extract {var_name} from dataset",
+                    f"cdo -selname,{var_name} \\",
+                    f"    {self.dataset_path} \\",
+                    f"    $TMPDIR/extracted_{vsuffix}.nc",
+                    "",
+                    "# 2. Anomaly = dataset field - climatology mean",
+                    f"cdo -sub $TMPDIR/extracted_{vsuffix}.nc \\",
+                    f"    {self.clim_path} \\",
+                    f"    {out}",
+                    "",
+                    f'echo "Saved: {out}"',
+                    "",
+                ]
+            else:
+                lines += [
+                    f"# ---- {var_name} at level index {level_idx} ----",
+                    "",
+                    f"# 1. Extract {var_name} at level {level_idx} from dataset",
+                    f"cdo -sellevidx,{level_idx} -selname,{var_name} \\",
+                    f"    {self.dataset_path} \\",
+                    f"    $TMPDIR/extracted_{vsuffix}.nc",
+                    "",
+                    "# 2. Anomaly = dataset field - climatology mean",
+                    f"cdo -sub $TMPDIR/extracted_{vsuffix}.nc \\",
+                    f"    {self.clim_path} \\",
+                    f"    {out}",
+                    "",
+                    f'echo "Saved: {out}"',
+                    "",
+                ]
 
         return "\n".join(lines)
 

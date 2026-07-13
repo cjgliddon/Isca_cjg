@@ -187,9 +187,14 @@ class CDOPostProcessor:
             output_suffix = self.get_output_suffix(var_name, level)
             extracted_vars.append(output_suffix)
             
-            cmd = (f"    cdo -sellevidx,{level_idx} -selname,{var_name} "
-                  f"run${{CHNO}}/{self.input_filename} "
-                  f"postprocessed/{output_suffix}_${{CHNO}}.nc")
+            if var_name == 'ps':
+                cmd = (f"    cdo -selname,{var_name} "
+                      f"run${{CHNO}}/{self.input_filename} "
+                      f"postprocessed/{output_suffix}_${{CHNO}}.nc")
+            else:
+                cmd = (f"    cdo -sellevidx,{level_idx} -selname,{var_name} "
+                      f"run${{CHNO}}/{self.input_filename} "
+                      f"postprocessed/{output_suffix}_${{CHNO}}.nc")
             
             script_lines.append(cmd)
         
@@ -218,58 +223,56 @@ class CDOPostProcessor:
         for output_suffix, _ in merged_files:
             script_lines.append(f"rm {output_suffix}_*.nc")
         
-        # Apply specific merging logic: ps + vor850 -> base_ps_vor.nc
-        script_lines.append("")
-        script_lines.append("# Create merged datasets following original logic")
-        
+#        # Apply specific merging logic: ps + vor850 -> base_ps_vor.nc
+#        script_lines.append("")
+#        script_lines.append("# Create merged datasets following original logic")
+#        
         var_dict = {self.get_output_suffix(v[0], v[1]): v[0] 
                     for v in self.variables}
-        
-        # Find ps and vor files
-        ps_file = None
-        vor_file = None
-        for suffix, varname in var_dict.items():
-            if varname == 'ps':
-                ps_file = f"merged_{suffix}.nc"
-            elif varname == 'vor':
-                vor_file = f"merged_{suffix}.nc"
-        
-        if ps_file and vor_file:
-            script_lines.append(f"cdo -merge {ps_file} {vor_file} base_ps_vor.nc")
-            script_lines.append(f"rm {ps_file} {vor_file}")
-            
-            # Compute anomalies if requested
-            if self.compute_anomalies:
-                script_lines.extend([
-                    "",
-                    "# Compute anomalies from time-zonal mean for base_ps_vor",
-                    "cdo -griddes base_ps_vor.nc > output_grid.txt",
-                    'cdo -enlarge,"output_grid.txt" -timmean base_ps_vor.nc base_t_mean.nc',
-                    'cdo -sub base_ps_vor.nc base_t_mean.nc base_anoms.nc',
-                    "# rm base_t_mean.nc  # Uncomment to clean up"
-                ])
+#        
+#        # Find ps and vor files
+#        ps_file = None
+#        vor_file = None
+#        for suffix, varname in var_dict.items():
+#            if varname == 'ps':
+#                ps_file = f"merged_{suffix}.nc"
+#            elif varname == 'vor':
+#                vor_file = f"merged_{suffix}.nc"
+#        
+#        if ps_file and vor_file:
+#            script_lines.append(f"cdo -merge {ps_file} {vor_file} base_ps_vor.nc")
+#            script_lines.append(f"rm {ps_file} {vor_file}")
+#            
+#            # Compute anomalies if requested
+#            if self.compute_anomalies:
+#                script_lines.extend([
+#                    "",
+#                    "# Compute anomalies from time-zonal mean for base_ps_vor",
+#                    "cdo -griddes base_ps_vor.nc > output_grid.txt",
+#                    'cdo -enlarge,"output_grid.txt" -timmean base_ps_vor.nc base_t_mean.nc',
+#                    'cdo -sub base_ps_vor.nc base_t_mean.nc base_anoms.nc',
+#                    "# rm base_t_mean.nc  # Uncomment to clean up"
+#                ])
         
         if self.compute_anomalies:
             
             for var_name, level in self.variables:
-                if (var_name != 'ps') and (var_name != 'vor'):
-                    output_suffix = f"{var_name}{int(level)}" if str(level).lower() not in ['surf', 'surface'] else var_name
-                    script_lines.extend([
-                        "",
-                        "# Compute anomalies from time-zonal mean",
-                        f"cdo -griddes merged_{output_suffix}.nc > output_grid.txt",
-                        f'cdo -enlarge,"output_grid.txt" -timmean merged_{output_suffix}.nc tmean_{output_suffix}.nc',
-                        f'cdo -sub merged_{output_suffix}.nc tmean_{output_suffix}.nc anomaly_{output_suffix}.nc',
-                        f'# rm tmean_{output_suffix}.nc     # Uncomment to clean up'
-                    ])
+                output_suffix = f"{var_name}{int(level)}" if str(level).lower() not in ['surf', 'surface'] else var_name
+                script_lines.extend([
+                    "",
+                    "# Compute anomalies from time-zonal mean",
+                    f"cdo -griddes merged_{output_suffix}.nc > output_grid.txt",
+                    f'cdo -enlarge,"output_grid.txt" -timmean merged_{output_suffix}.nc tmean_{output_suffix}.nc',
+                    f'cdo -sub merged_{output_suffix}.nc tmean_{output_suffix}.nc anomaly_{output_suffix}.nc',
+                    f'# rm tmean_{output_suffix}.nc     # Uncomment to clean up'
+                ])
 
         # Rename other merged files to match original naming convention
         # Keep them as separate timeseries
         for output_suffix, merged_name in merged_files:
             varname = var_dict[output_suffix]
-            if varname not in ['ps', 'vor']:
-                final_name = f"base_{output_suffix}.nc"
-                script_lines.append(f"mv {merged_name} {final_name}")
+            final_name = f"base_{output_suffix}.nc"
+            script_lines.append(f"mv {merged_name} {final_name}")
         
         return "\n".join(script_lines)
     
